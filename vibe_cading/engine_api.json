@@ -3772,12 +3772,12 @@
       "module": "vibe_cading.mechanical.inserts",
       "name": "HeatSetInsert",
       "fqn": "vibe_cading.mechanical.inserts.HeatSetInsert",
-      "doc": "Generic tapered heat-set threaded insert.\n\nGenerates the optimal tapered cutter void required to melt the\ninsert cleanly into plastic.  Tapered designs prevent plastic from\nextruding over the top face during insertion.\n\nThrough-vs-blind: the tapered pocket is fundamentally **blind**\n(defined floor at ``-depth``).  When ``through_hole=True`` an\narbitrarily deep clearance shaft (100 mm) is appended below the\npocket so a screw can pass completely through.",
+      "doc": "Generic or standard heat-set threaded insert.\n\nGenerates the cutter void required to melt the insert cleanly into\nplastic.  Supports both tapered pockets (preventing plastic from\nextruding over the top face during insertion) and straight cylindrical\npockets with 1 mm relief depth as specified by CNC Kitchen.\n\nThrough-vs-blind: the insert pocket is fundamentally **blind**\n(defined floor at ``-depth``).  When ``through_hole=True`` an\narbitrarily deep clearance shaft (100 mm) is appended below the\npocket so a screw can pass completely through.",
       "constructors": [
         {
           "kind": "init",
           "name": "__init__",
-          "doc": "Create a custom insert profile based on raw geometries.\n\n:param top_diameter: Diameter of the void at the surface (mm).\n:param bot_diameter: Diameter of the void at the bottom (mm) \u2014 usually\n    slightly smaller for taper.\n:param depth: Total depth of the insert void (mm).\n:param through_hole: When True, ``to_cutter`` appends a deep\n    clearance shaft beneath the insert pocket so a screw can\n    pass through the host body.  Migrated from a ``to_cutter``\n    kwarg to a constructor argument per Phase 4 so the\n    ``CutterProtocol`` call-time signature stays uniform.\n:param clearance_diameter: Diameter of the optional through-hole shaft\n    (mm) \u2014 e.g. 3.2 for an M3 clearance hole.  Ignored when\n    ``through_hole`` is False.",
+          "doc": "Create a custom insert profile based on raw geometries.\n\n:param top_diameter: Diameter of the void at the surface (mm).\n:param bot_diameter: Diameter of the void at the bottom (mm) \u2014 usually\n    equal to ``top_diameter`` (straight pocket) or slightly smaller\n    for taper.\n:param depth: Total depth of the insert void (mm).\n:param through_hole: When True, ``to_cutter`` appends a deep\n    clearance shaft beneath the insert pocket so a screw can\n    pass through the host body.  Migrated from a ``to_cutter``\n    kwarg to a constructor argument per Phase 4 so the\n    ``CutterProtocol`` call-time signature stays uniform.\n:param clearance_diameter: Diameter of the optional through-hole shaft\n    (mm) \u2014 e.g. 3.2 for an M3 clearance hole.  Ignored when\n    ``through_hole`` is False.",
           "params": [
             {
               "name": "top_diameter",
@@ -3825,6 +3825,49 @@
         },
         {
           "kind": "classmethod",
+          "name": "cnckitchen",
+          "doc": "Official CNC Kitchen heat-set insert specification (from ScanRuler).\n\nUses a straight cylindrical hole of diameter ``D3`` (or optional lead-in\n``taper`` added to ``top_diameter``), pocket depth ``length + 1.0`` mm\nto accommodate plastic pushed ahead of the insert, and records the\nminimum wall thickness ``min_wall`` and ``min_boss_diameter``.\n\nSupported sizes: ``\"M2\"``, ``\"M2.5\"``, ``\"M3\"``, ``\"M3_short\"``\n(``\"M3 short\"``), ``\"M3_Voron\"`` (``\"M3 Voron\"``), ``\"M4\"``,\n``\"M4_short\"`` (``\"M4 short\"``), ``\"M5\"``, ``\"M5_short\"``\n(``\"M5 short\"``), ``\"M6\"``, ``\"M8\"``, ``\"1/4-20\"`` (``'1/4\"-20'``).",
+          "params": [
+            {
+              "name": "size",
+              "type": "str",
+              "required": false,
+              "default": "'M3'",
+              "units": "mm",
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "through_hole",
+              "type": "bool",
+              "required": false,
+              "default": "False",
+              "units": null,
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "clearance_diameter",
+              "type": "float",
+              "required": false,
+              "default": "3.2",
+              "units": "mm",
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "taper",
+              "type": "float",
+              "required": false,
+              "default": "0.0",
+              "units": null,
+              "allowed_values": null,
+              "value_doc": null
+            }
+          ]
+        },
+        {
+          "kind": "classmethod",
           "name": "voron",
           "doc": "Standard insert void sizes specified by the Voron Design manual.\n\nTypical Voron insert for M3 is M3x5x4.",
           "params": [
@@ -3863,7 +3906,7 @@
         {
           "kind": "classmethod",
           "name": "ruthex",
-          "doc": "Ruthex / CNC Kitchen geometry standard.\n\nSlightly wider / longer than Voron specs.",
+          "doc": "Ruthex / CNC Kitchen tapered geometry standard.\n\nSlightly wider / longer than Voron specs.",
           "params": [
             {
               "name": "size",
@@ -5341,6 +5384,173 @@
               "type": "float",
               "required": false,
               "default": "6.0",
+              "units": "mm",
+              "allowed_values": null,
+              "value_doc": null
+            }
+          ]
+        }
+      ],
+      "result_accessor": ".solid"
+    },
+    {
+      "module": "vibe_cading.mechanical.threads",
+      "name": "PrintableThread",
+      "fqn": "vibe_cading.mechanical.threads.PrintableThread",
+      "doc": "Parametric 3D-printable 45\u00b0-flank (``print45``) or 60\u00b0 ISO/Unified screw thread.\n\nOrigin lies at ``(0, 0, 0)`` on the bottom face of the thread; the thread\naxis runs along ``+Z`` to ``Z = length``.\n\n* When ``internal=False`` (default):\n  - ``.solid`` returns an external threaded rod / bolt shaft of major\n    diameter ``diameter`` and height ``length``.\n  - ``.to_cutter()`` returns the annular thread-cutting tool that cuts the\n    external thread into a cylindrical boss of ``diameter``.\n* When ``internal=True``:\n  - ``.to_cutter()`` (and ``.solid``) returns a positive tapped-bore\n    cutter (minor bore + helical internal thread grooves + optional 45\u00b0\n    countersink chamfers) ready to subtract from a solid block or nut body\n    via ``body.cut(thread.to_cutter())``.\n  - ``.to_nut()`` returns a complete internally threaded collar or hex nut.",
+      "constructors": [
+        {
+          "kind": "init",
+          "name": "__init__",
+          "doc": null,
+          "params": [
+            {
+              "name": "diameter",
+              "type": "float",
+              "required": false,
+              "default": "8.0",
+              "units": "mm",
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "pitch",
+              "type": "float | None",
+              "required": false,
+              "default": "None",
+              "units": "mm",
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "length",
+              "type": "float",
+              "required": false,
+              "default": "10.0",
+              "units": "mm",
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "standard",
+              "type": "str",
+              "required": false,
+              "default": "'print45'",
+              "units": null,
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "internal",
+              "type": "bool",
+              "required": false,
+              "default": "False",
+              "units": null,
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "offset",
+              "type": "float",
+              "required": false,
+              "default": "0.0",
+              "units": null,
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "chamfer",
+              "type": "bool",
+              "required": false,
+              "default": "False",
+              "units": null,
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "left_handed",
+              "type": "bool",
+              "required": false,
+              "default": "False",
+              "units": null,
+              "allowed_values": null,
+              "value_doc": null
+            }
+          ]
+        },
+        {
+          "kind": "classmethod",
+          "name": "from_size",
+          "doc": "Create a :class:`PrintableThread` from a standard size label (e.g. ``'M8'``, ``'\u00d88'``).",
+          "params": [
+            {
+              "name": "size",
+              "type": "str",
+              "required": false,
+              "default": "'M8'",
+              "units": "mm",
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "length",
+              "type": "float",
+              "required": false,
+              "default": "10.0",
+              "units": "mm",
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "standard",
+              "type": "str",
+              "required": false,
+              "default": "'print45'",
+              "units": null,
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "internal",
+              "type": "bool",
+              "required": false,
+              "default": "False",
+              "units": null,
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "offset",
+              "type": "float",
+              "required": false,
+              "default": "0.0",
+              "units": null,
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "chamfer",
+              "type": "bool",
+              "required": false,
+              "default": "False",
+              "units": null,
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "left_handed",
+              "type": "bool",
+              "required": false,
+              "default": "False",
+              "units": null,
+              "allowed_values": null,
+              "value_doc": null
+            },
+            {
+              "name": "use_coarse_pitch",
+              "type": "bool",
+              "required": false,
+              "default": "False",
               "units": "mm",
               "allowed_values": null,
               "value_doc": null
